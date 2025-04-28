@@ -1,5 +1,5 @@
-import numpy as np
 from datasets import load_dataset
+
 from vector_search import VectorSearchSystem
 
 
@@ -73,7 +73,7 @@ def load_leetcode_basic_dataset():
                                 ]
                             else:
                                 tags = [item["topicTags"]]
-                        except:
+                        except Exception:
                             tags = [item["topicTags"]]
                 elif isinstance(item["topicTags"], list):
                     if all(isinstance(tag, dict) for tag in item["topicTags"]):

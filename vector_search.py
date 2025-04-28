@@ -1,8 +1,9 @@
-from typing import List, Dict
-from sentence_transformers import SentenceTransformer
+from typing import Dict, List
+
 import faiss
 import numpy as np
 import rbpe_tokenizer
+from sentence_transformers import SentenceTransformer
 
 
 class VectorSearchSystem:
