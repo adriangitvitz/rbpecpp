@@ -166,22 +166,15 @@ private:
     if (!node)
       return;
 
-    auto it = std::remove(cache.begin(), cache.end(), node);
-    cache.erase(it, cache.end());
+    auto it = std::find(cache.begin(), cache.end(), node);
+    if (it != cache.end()) {
+      cache.erase(it);
+    }
+
     cache.push_front(node);
 
-    while (cache.size() > max_cache_size) {
-      auto removed = cache.back();
+    if (cache.size() > max_cache_size) {
       cache.pop_back();
-
-      if (removed && !removed->prefix.empty() && removed->children.empty()) {
-        auto parent = find_parent(root, nullptr, removed);
-        if (parent) {
-          if (!removed->prefix.empty()) {
-            parent->children.erase(removed->prefix.substr(0, 1));
-          }
-        }
-      }
     }
   }
 

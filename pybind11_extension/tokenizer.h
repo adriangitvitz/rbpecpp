@@ -4,6 +4,7 @@
 #include "rbpe.h"
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -126,6 +127,70 @@ public:
       }
       ids = parallel_batch_replace(ids, current_merges);
     }
+  }
+
+  std::vector<int> encode_with_dropout(const std::string &text,
+                                       float dropout_prob = 0.1) {
+    std::vector<unsigned char> chars(text.begin(), text.end());
+    std::vector<int> ids;
+
+    size_t pos = 0;
+    while (pos < chars.size()) {
+      int best_token_id = -1;
+      size_t best_length = 0;
+
+      for (size_t len = 1;
+           len <= std::min(static_cast<size_t>(max_depth), chars.size() - pos);
+           len++) {
+        std::string substr(chars.begin() + pos, chars.begin() + pos + len);
+        int token_id = rbt->get_id(substr);
+
+        if (token_id != -1) {
+          bool should_apply =
+              (len == 1) || ((double)rand() / RAND_MAX) > dropout_prob;
+
+          if (should_apply && len > best_length) {
+            best_token_id = token_id;
+            best_length = len;
+          }
+        }
+      }
+
+      if (best_length > 0) {
+        ids.push_back(best_token_id);
+        pos += best_length;
+      } else {
+        ids.push_back(chars[pos]);
+        pos++;
+      }
+    }
+
+    return ids;
+  }
+
+  std::vector<std::vector<int>> chunk_with_overlap(const std::string &text,
+                                                   int chunk_size = 512,
+                                                   int overlap = 64) {
+    std::vector<int> tokens = encode(text);
+    std::vector<std::vector<int>> chunks;
+
+    if (static_cast<int>(tokens.size()) <= chunk_size) {
+      chunks.push_back(tokens);
+      return chunks;
+    }
+
+    size_t start = 0;
+    while (start < tokens.size()) {
+      size_t end = std::min(start + chunk_size, tokens.size());
+      std::vector<int> chunk(tokens.begin() + start, tokens.begin() + end);
+      chunks.push_back(chunk);
+
+      start += (chunk_size - overlap);
+      if (start >= tokens.size())
+        break;
+    }
+
+    return chunks;
   }
 
 private:
