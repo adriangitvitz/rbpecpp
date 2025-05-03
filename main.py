@@ -146,13 +146,13 @@ if __name__ == "__main__":
     )
     decoded = search_system.tokenizer.decode(encoded)
 
-    print(f"Original: {sample_problem[:100]}...")
+    print(f"Original: {sample_problem}...")
     print(f"Encoded tokens {encoded}")
     print(
         f"Encoded tokens length: {len(encoded)} tokens - Text Length: {len(sample_problem)}"
     )
     print(f"Encoded with dropout: {len(encoded_with_dropout)} tokens")
-    print(f"Decoded: {decoded[:100]}...")
+    print(f"Decoded: {decoded}...")
 
     chunks = search_system.tokenizer.chunk_with_overlap(
         sample_problem, chunk_size=100, overlap=20
