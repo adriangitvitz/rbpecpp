@@ -53,28 +53,48 @@ public:
   std::vector<int> encode(const std::string &text) {
     std::vector<int> byte_stream(text.begin(), text.end());
     std::vector<int> ids;
-    size_t i = 0;
+    size_t pos = 0;
 
-    while (i < byte_stream.size()) {
-      size_t max_len =
-          std::min(static_cast<size_t>(max_depth), byte_stream.size() - 1);
-      bool found = false;
-      for (size_t length = max_len; length > 0; --length) {
-        std::string chunk(byte_stream.begin() + i,
-                          byte_stream.begin() + i + length);
-        int token_id = rbt->get_id(chunk);
-        if (token_id != -1) {
-          ids.push_back(token_id);
-          i += length;
-          found = true;
-          break;
+    CompressNode *current_node = rbt->root.get();
+    int longest_match_id = -1;
+    size_t longest_match_pos = 0;
+
+    while (pos < byte_stream.size()) {
+      uint8_t current_byte = byte_stream[pos];
+
+      if (current_node->children.count(current_byte)) {
+        auto child = current_node->children[current_byte];
+        size_t prefix_len = child->prefix.size();
+
+        if (text.compare(pos, prefix_len, child->prefix) == 0) {
+          current_node = child.get();
+          pos += prefix_len;
+
+          if (current_node->value != -1) {
+            longest_match_id = current_node->value;
+            longest_match_pos = pos;
+          }
+          continue;
         }
       }
-      if (!found) {
-        ids.push_back(byte_stream[i]);
-        ++i;
+
+      if (longest_match_id != -1) {
+        ids.push_back(longest_match_id);
+        pos = longest_match_pos;
+      } else {
+        ids.push_back(static_cast<int>(byte_stream[pos]));
+        pos++;
       }
+
+      current_node = rbt->root.get();
+      longest_match_id = -1;
+      longest_match_pos = pos;
     }
+
+    if (longest_match_id != -1) {
+      ids.push_back(longest_match_id);
+    }
+
     return ids;
   }
 
@@ -389,13 +409,11 @@ private:
     out.write(reinterpret_cast<const char *>(&node->value),
               sizeof(node->value));
 
-    // Serialize node children
     size_t num_children = node->children.size();
     out.write(reinterpret_cast<const char *>(&num_children),
               sizeof(num_children));
-    for (const auto &[byte, child] : node->children) {
-      char c = byte.empty() ? '\0' : byte[0];
-      out.write(&c, 1);
+    for (const auto &[byte_key, child] : node->children) {
+      out.write(reinterpret_cast<const char *>(&byte_key), sizeof(uint8_t));
       serialize_tree(out, child);
     }
   }
@@ -415,11 +433,11 @@ private:
     size_t num_children;
     in.read(reinterpret_cast<char *>(&num_children), sizeof(num_children));
     for (size_t i = 0; i < num_children; ++i) {
-      char byte;
-      in.read(&byte, 1);
+      uint8_t byte_key;
+      in.read(reinterpret_cast<char *>(&byte_key), sizeof(uint8_t));
       std::shared_ptr<CompressNode> child;
       rebuild_tree(in, child);
-      node->children[std::string(1, byte)] = child;
+      node->children[byte_key] = child;
     }
   }
 };

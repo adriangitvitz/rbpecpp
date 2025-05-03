@@ -15,7 +15,7 @@
 class CompressNode {
 public:
   std::string prefix;
-  std::unordered_map<std::string, std::shared_ptr<CompressNode>> children;
+  std::unordered_map<uint8_t, std::shared_ptr<CompressNode>> children;
   int count;
   int value;
   time_t last_accessed;
@@ -48,7 +48,7 @@ public:
     size_t i = 0;
 
     while (i < token_bytes.size()) {
-      std::string byte = token_bytes.substr(i, 1);
+      uint8_t byte = static_cast<uint8_t>(token_bytes[i]);
       if (node->children.count(byte)) {
         auto child = node->children[byte];
         size_t prefix_len = child->prefix.size();
@@ -68,12 +68,14 @@ public:
           auto split_node = std::make_shared<CompressNode>(
               child->prefix.substr(0, common_len));
           child->prefix = child->prefix.substr(common_len);
-          split_node->children[child->prefix.substr(0, 1)] = child;
+          uint8_t child_first_byte = static_cast<uint8_t>(child->prefix[0]);
+          split_node->children[child_first_byte] = child;
 
           std::string new_prefix = token_bytes.substr(i + common_len);
           auto new_node = std::make_shared<CompressNode>(new_prefix);
           new_node->value = token_id;
-          split_node->children[new_prefix.substr(0, 1)] = new_node;
+          uint8_t new_prefix_first_byte = static_cast<uint8_t>(new_prefix[0]);
+          split_node->children[new_prefix_first_byte] = new_node;
           node->children[byte] = split_node;
           node = new_node;
           i += common_len;
@@ -101,18 +103,14 @@ public:
     size_t i = 0;
 
     while (i < token_bytes.size()) {
-      std::string byte;
-      try {
-        byte = token_bytes.substr(i, 1);
-      } catch (const std::exception &e) {
+
+      uint8_t byte_key = static_cast<uint8_t>(token_bytes[i]);
+      if (current_node->children.find(byte_key) ==
+          current_node->children.end()) {
         return -1;
       }
 
-      if (current_node->children.find(byte) == current_node->children.end()) {
-        return -1;
-      }
-
-      auto child = current_node->children[byte];
+      auto child = current_node->children[byte_key];
       if (!child) {
         return -1;
       }
