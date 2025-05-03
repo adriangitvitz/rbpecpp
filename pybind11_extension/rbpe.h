@@ -7,6 +7,7 @@
 #include <ctime>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <stdio.h>
 #include <string>
 #include <unordered_map>
@@ -33,6 +34,7 @@ private:
 
 class RadixBalancedTree {
 public:
+  std::shared_ptr<CompressNode> root;
   RadixBalancedTree(size_t max_cache_size = 1024)
       : root(std::make_shared<CompressNode>("")),
         max_cache_size(max_cache_size) {
@@ -150,7 +152,6 @@ public:
   }
 
 private:
-  std::shared_ptr<CompressNode> root;
   std::deque<std::shared_ptr<CompressNode>> cache;
   std::unordered_map<int, std::string> id_map;
   std::unordered_map<std::string, int> byte_to_id;

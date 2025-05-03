@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <future>
+#include <ios>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -218,6 +220,68 @@ public:
     return chunks;
   }
 
+  void save(const std::string &path) {
+    std::lock_guard<std::mutex> lock(mtx);
+    std::ofstream out(path, std::ios::binary);
+
+    size_t vocab_size = vocab.size();
+    out.write(reinterpret_cast<char *>(&vocab_size), sizeof(vocab_size));
+    for (const auto &[id, bytes] : vocab) {
+      out.write(reinterpret_cast<const char *>(&id), sizeof(id));
+      size_t len = bytes.size();
+      out.write(reinterpret_cast<const char *>(&len), sizeof(len));
+      out.write(bytes.data(), len);
+    }
+
+    size_t merges_size = merges.size();
+    out.write(reinterpret_cast<char *>(&merges_size), sizeof(merges_size));
+    for (const auto &[pair, id] : merges) {
+      out.write(reinterpret_cast<const char *>(&pair.first),
+                sizeof(pair.first));
+      out.write(reinterpret_cast<const char *>(&pair.second),
+                sizeof(pair.second));
+      out.write(reinterpret_cast<const char *>(&id), sizeof(id));
+    }
+    serialize_tree(out, rbt->root);
+  }
+
+  void load(const std::string &path) {
+    std::lock_guard<std::mutex> lock(mtx);
+    std::ifstream in(path, std::ios::binary);
+
+    // Clear existing state
+    vocab.clear();
+    merges.clear();
+    rbt.reset(new RadixBalancedTree());
+
+    // Load vocab
+    size_t vocab_size;
+    in.read(reinterpret_cast<char *>(&vocab_size), sizeof(vocab_size));
+    for (size_t i = 0; i < vocab_size; ++i) {
+      int id;
+      size_t len;
+      in.read(reinterpret_cast<char *>(&id), sizeof(id));
+      in.read(reinterpret_cast<char *>(&len), sizeof(len));
+      std::string bytes(len, '\0');
+      in.read(&bytes[0], len);
+      vocab[id] = bytes;
+    }
+
+    // Load merges
+    size_t merges_size;
+    in.read(reinterpret_cast<char *>(&merges_size), sizeof(merges_size));
+    for (size_t i = 0; i < merges_size; ++i) {
+      std::pair<int, int> pair;
+      int id;
+      in.read(reinterpret_cast<char *>(&pair.first), sizeof(pair.first));
+      in.read(reinterpret_cast<char *>(&pair.second), sizeof(pair.second));
+      in.read(reinterpret_cast<char *>(&id), sizeof(id));
+      merges[pair] = id;
+    }
+
+    rebuild_tree(in, rbt->root);
+  }
+
 private:
   std::unordered_set<std::string>
   init_tech_term(const std::vector<std::string> &terms) {
@@ -311,6 +375,52 @@ private:
     }
 
     return new_seq;
+  }
+
+  void serialize_tree(std::ostream &out,
+                      const std::shared_ptr<CompressNode> &node) {
+    if (!node)
+      return;
+
+    // Serialize current node
+    size_t prefix_len = node->prefix.size();
+    out.write(reinterpret_cast<const char *>(&prefix_len), sizeof(prefix_len));
+    out.write(node->prefix.data(), prefix_len);
+    out.write(reinterpret_cast<const char *>(&node->value),
+              sizeof(node->value));
+
+    // Serialize node children
+    size_t num_children = node->children.size();
+    out.write(reinterpret_cast<const char *>(&num_children),
+              sizeof(num_children));
+    for (const auto &[byte, child] : node->children) {
+      char c = byte.empty() ? '\0' : byte[0];
+      out.write(&c, 1);
+      serialize_tree(out, child);
+    }
+  }
+
+  void rebuild_tree(std::istream &in, std::shared_ptr<CompressNode> &node) {
+    size_t prefix_len;
+    in.read(reinterpret_cast<char *>(&prefix_len), sizeof(prefix_len));
+    std::string prefix(prefix_len, '\0');
+    in.read(&prefix[0], prefix_len);
+
+    int value;
+    in.read(reinterpret_cast<char *>(&value), sizeof(value));
+
+    node = std::make_shared<CompressNode>(prefix);
+    node->value = value;
+
+    size_t num_children;
+    in.read(reinterpret_cast<char *>(&num_children), sizeof(num_children));
+    for (size_t i = 0; i < num_children; ++i) {
+      char byte;
+      in.read(&byte, 1);
+      std::shared_ptr<CompressNode> child;
+      rebuild_tree(in, child);
+      node->children[std::string(1, byte)] = child;
+    }
   }
 };
 

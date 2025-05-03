@@ -8,6 +8,8 @@ PYBIND11_MODULE(rbpe_tokenizer, m) {
   m.doc() = "Type-safe RBPE Python bindings";
 
   py::class_<RBTokenizer>(m, "RBTokenizer")
+      .def("save", &RBTokenizer::save, py::arg("path"))
+      .def("load", &RBTokenizer::load, py::arg("path"))
       .def(py::init<int, const std::vector<std::string> &>(),
            py::arg("max_depth") = 0,
            py::arg("tech_terms") = std::vector<std::string>())
