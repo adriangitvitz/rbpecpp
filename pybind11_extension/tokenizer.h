@@ -1,6 +1,8 @@
 #ifndef Tokenizer_H
 #define Tokenizer_H
 
+#include "indexed_list.h"
+#include "pairmultiset.h"
 #include "rbpe.h"
 #include <algorithm>
 #include <cstddef>
@@ -15,15 +17,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-struct pair_hash {
-  template <class T1, class T2>
-  size_t operator()(const std::pair<T1, T2> &p) const {
-    auto h1 = std::hash<T1>{}(p.first);
-    auto h2 = std::hash<T2>{}(p.second);
-    return h1 ^ h2;
-  }
-};
 
 class RBTokenizer {
 public:
@@ -85,47 +78,79 @@ public:
 
   void train(const std::string &text, int vocab_size,
              int merge_batch_size = 32) {
-    std::vector<int> text_bytes(text.begin(), text.end());
-    std::vector<std::vector<int>> ids = {text_bytes};
+    std::vector<uint8_t> text_bytes(text.begin(), text.end());
+    IndexedList list(text_bytes);
+    PairMultiset stats;
+    IndexedList::Node *curr = list.head;
 
-    premerge_technical_terms(text);
-
+    while (curr && curr->next) {
+      stats.add({curr->val, curr->next->val});
+      curr = curr->next;
+    }
     int total_merges = vocab_size - 256 - merges.size();
-    int iterations = std::max(1, total_merges / merge_batch_size);
 
-    for (int iter = 0; iter < iterations; ++iter) {
-      std::unordered_map<std::pair<int, int>, int, pair_hash> batch_stats;
-      std::vector<
-          std::future<std::unordered_map<std::pair<int, int>, int, pair_hash>>>
-          futures;
-      for (const auto &seq : ids) {
-        futures.push_back(std::async(&RBTokenizer::count_pairs, this, seq));
-      }
+    for (int i = 0; i < total_merges; i++) {
+      auto [pair, count] = stats.max();
+      if (count == 0) // No more pairs need to be merged
+        break;
 
-      for (auto &future : futures) {
-        auto result = future.get();
-        for (const auto &[pair, count] : result) {
-          batch_stats[pair] += count;
-        }
-      }
-      std::vector<std::pair<std::pair<int, int>, int>> top_pairs(
-          batch_stats.begin(), batch_stats.end());
-      std::sort(top_pairs.begin(), top_pairs.end(),
-                [](auto &a, auto &b) { return a.second > b.second; });
-      std::vector<std::pair<int, int>> current_merges;
-      for (int i = 0;
-           i < std::min(merge_batch_size, static_cast<int>(top_pairs.size()));
-           ++i) {
-        auto [pair, _] = top_pairs[i];
-        current_merges.push_back(pair);
-        int new_id = 256 + merges.size();
-        std::string merged_bytes = vocab[pair.first] + vocab[pair.second];
+      // Creating new tokens
+      int new_id = 256 + merges.size();
+      std::string merged_bytes = vocab[pair.first] + vocab[pair.second];
+
+      {
         std::lock_guard<std::mutex> lock(mtx);
         merges[pair] = new_id;
         vocab[new_id] = merged_bytes;
         rbt->insert(merged_bytes, new_id);
       }
-      ids = parallel_batch_replace(ids, current_merges);
+      apply_merge(list, pair, new_id, stats);
+    }
+  }
+
+  void apply_merge(IndexedList &list, const std::pair<int, int> &pair,
+                   int new_id, PairMultiset &stats) {
+    auto &positions = list.get_pair_positions(pair);
+
+    for (auto node : positions) {
+      if (!node || !node->next || node->val != pair.first ||
+          node->next->val != pair.second) {
+        continue;
+      }
+
+      if (node->prev) {
+        stats.remove({node->prev->val, node->val});
+      }
+
+      if (node->next) {
+        stats.remove({node->val, node->next->val});
+
+        if (node->next->next) {
+          stats.remove({node->next->val, node->next->next->val});
+        }
+      }
+
+      IndexedList::Node *to_delete = node->next;
+      IndexedList::Node *next_next = to_delete ? to_delete->next : nullptr;
+
+      node->val = new_id;
+      node->next = next_next;
+
+      if (next_next) {
+        next_next->prev = node;
+      }
+
+      delete to_delete;
+
+      list.update_index(node);
+
+      if (node->prev) {
+        stats.add({node->prev->val, new_id});
+      }
+
+      if (node->next) {
+        stats.add({new_id, node->next->val});
+      }
     }
   }
 
@@ -231,7 +256,7 @@ private:
               pairs.begin(), pairs.end(),
               [](const auto &a, const auto &b) { return a.second < b.second; });
           std::pair<int, int> best_pair = best_pair_it->first;
-          std::lock_guard<std::mutex> lock(mtx);
+          // std::lock_guard<std::mutex> lock(mtx);
           int new_id = 256 + merges.size();
           std::string merged_bytes =
               vocab[best_pair.first] + vocab[best_pair.second];
@@ -261,28 +286,6 @@ private:
       }
     }
     return new_seq;
-  }
-
-  std::vector<std::vector<int>> parallel_batch_replace(
-      const std::vector<std::vector<int>> &sequences,
-      const std::vector<std::pair<int, int>> &current_merges) {
-    std::unordered_map<std::pair<int, int>, int, pair_hash> replacements;
-    for (const auto &merge : current_merges) {
-      replacements[merge] = merges[merge];
-    }
-
-    std::vector<std::future<std::vector<int>>> futures;
-
-    for (const auto &seq : sequences) {
-      futures.push_back(
-          std::async(&RBTokenizer::replace_sequence_with_replacements, this,
-                     seq, replacements));
-    }
-    std::vector<std::vector<int>> results;
-    for (auto &future : futures) {
-      results.push_back(future.get());
-    }
-    return results;
   }
 
   std::vector<int> replace_sequence_with_replacements(

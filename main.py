@@ -133,20 +133,6 @@ if __name__ == "__main__":
     print("Training tokenizer...")
     search_system.train_tokenizer(full_text)
 
-    print("Creating embeddings...")
-    search_system.create_embeddings(problems)
-
-    query = "Given an array of integers nums and an integer target"
-    print(f"\nQuerying: {query}")
-    results = search_system.query(query)
-
-    print("\nTop matching problems:")
-    for i, result in enumerate(results):
-        tags = result.get("tags", [])
-        tags_str = ", ".join(tags) if tags else "No tags"
-        print(f"{i + 1}. {result['title']} ({result['difficulty']}) - {tags_str}")
-        print(f"   URL: {result['url']}")
-
     sample_problem = """
     Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
     You may assume that each input would have exactly one solution, and you may not use the same element twice.
@@ -161,7 +147,10 @@ if __name__ == "__main__":
     decoded = search_system.tokenizer.decode(encoded)
 
     print(f"Original: {sample_problem[:100]}...")
-    print(f"Encoded tokens: {len(encoded)} tokens")
+    print(f"Encoded tokens {encoded}")
+    print(
+        f"Encoded tokens length: {len(encoded)} tokens - Text Length: {len(sample_problem)}"
+    )
     print(f"Encoded with dropout: {len(encoded_with_dropout)} tokens")
     print(f"Decoded: {decoded[:100]}...")
 
@@ -171,3 +160,17 @@ if __name__ == "__main__":
     print(f"\nChunked into {len(chunks)} overlapping segments")
     for i, chunk in enumerate(chunks):
         print(f"Chunk {i + 1}: {len(chunk)} tokens")
+
+    print("Creating embeddings...")
+    search_system.create_embeddings(problems)
+
+    query = "Given an array of integers nums and an integer target"
+    print(f"\nQuerying: {query}")
+    results = search_system.query(query)
+
+    print("\nTop matching problems:")
+    for i, result in enumerate(results):
+        tags = result.get("tags", [])
+        tags_str = ", ".join(tags) if tags else "No tags"
+        print(f"{i + 1}. {result['title']} ({result['difficulty']}) - {tags_str}")
+        print(f"   URL: {result['url']}")
